@@ -3,14 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>TRIDUC NATIVE MULTIVIEW - WEBRTC</title>
+    <title>TRIDUC HEVC MULTIVIEW</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.3/hls.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     
     <style>
         :root {
             --bg-color: #0d0d0d;
             --panel-color: #1a1a1a;
-            --accent-color: #00ff88;
+            --accent-color: #ff9800;
+            --hevc-color: #00e5ff; /* Màu xanh riêng cho HEVC */
+            --danger-color: #ff3333;
         }
 
         body { 
@@ -28,15 +31,15 @@
 
         .controls-group { display: flex; gap: 8px; align-items: center; }
 
-        button { 
+        button, select { 
             cursor: pointer; padding: 6px 10px; background: #333; color: #fff; 
             border: 1px solid #555; border-radius: 4px; font-size: 12px; outline: none;
-            display: flex; align-items: center; gap: 5px; transition: 0.2s;
+            display: flex; align-items: center; gap: 5px;
         }
         button:hover { border-color: var(--accent-color); background: #444; }
         button.active { background: var(--accent-color); color: #000; font-weight: bold; border-color: var(--accent-color); }
 
-        /* MENU LỌC CAMERA */
+        /* MENU LỌC */
         #filter-modal {
             position: absolute; top: 55px; left: 10px;
             background: rgba(20, 20, 20, 0.95); border: 1px solid #555;
@@ -48,18 +51,15 @@
         .filter-item { display: block; margin-bottom: 8px; font-size: 13px; cursor: pointer; user-select: none; }
         .filter-item input { margin-right: 10px; accent-color: var(--accent-color); transform: scale(1.2); }
 
-        /* GRID SYSTEM */
+        /* GRID */
         #video-grid { flex-grow: 1; display: grid; gap: 2px; padding: 2px; background: #000; overflow: hidden; }
         .layout-2x2 { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); }
         .layout-3x3 { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); }
         .layout-4x4 { grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(4, 1fr); }
 
-        /* CAMERA BOX */
-        .cam-box { 
-            position: relative; background: #000; border: 1px solid #222; 
-            display: flex; align-items: center; justify-content: center; overflow: hidden;
-        }
-        .mistvideo { width: 100%; height: 100%; }
+        /* CAM BOX */
+        .cam-box { position: relative; background: #000; border: 1px solid #222; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        video { width: 100%; height: 100%; object-fit: contain; }
 
         .cam-label { 
             position: absolute; top: 0; left: 0; 
@@ -67,21 +67,52 @@
             font-size: 12px; color: var(--accent-color); font-weight: bold; 
             z-index: 5; pointer-events: none; border-bottom-right-radius: 4px;
         }
+
+        /* STATS */
+        .stats-overlay {
+            position: absolute; top: 30px; left: 5px;
+            background: rgba(0, 0, 0, 0.8); color: #0f0;
+            padding: 5px 8px; font-family: 'Consolas', monospace; font-size: 11px;
+            border: 1px solid #444; border-radius: 4px;
+            z-index: 20; pointer-events: none; display: none;
+            line-height: 1.4; text-align: left;
+        }
+        .stats-overlay span { color: #fff; }
+
+        /* ERROR SCREEN */
+        .error-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #111; z-index: 10; display: none;
+            flex-direction: column; align-items: center; justify-content: center;
+        }
+        .error-content { text-align: center; color: var(--danger-color); }
+        .btn-retry { margin-top: 15px; background: #333; color: #fff; border: 1px solid #555; padding: 5px 15px; }
+        .btn-retry:hover { background: var(--accent-color); color: #000; }
+        
+        .hevc-warning { font-size: 10px; color: #00e5ff; margin-top: 5px; cursor: pointer; text-decoration: underline; }
+
     </style>
 </head>
 <body>
 
     <header>
         <div class="controls-group">
-            <strong style="color:var(--accent-color); font-size: 14px; margin-right: 10px;">TRIDUC<span style="color:#fff">VIEW</span></strong>
-            <button onclick="toggleFilterMenu()" id="btn-filter"><i class="fas fa-tasks"></i> Cam List</button>
+            <strong style="color:var(--accent-color); font-size: 14px;">TRIDUC<span style="color:#fff">VIEW</span></strong>
+            <button onclick="toggleFilterMenu()" id="btn-filter"><i class="fas fa-tasks"></i> List</button>
+            <button onclick="toggleStats()" id="btn-stats"><i class="fas fa-info-circle"></i> Info</button>
+            <select id="quality-select" onchange="changeQuality(this.value)">
+                <option value="-1">Auto</option>
+                <option value="1080">1080p</option>
+                <option value="720">720p</option>
+                <option value="480">480p</option>
+            </select>
         </div>
 
         <div class="controls-group">
             <button onclick="setLayout(4)" id="btn-2x2">2x2</button>
             <button onclick="setLayout(9)" id="btn-3x3">3x3</button>
             <button onclick="setLayout(16)" id="btn-4x4" class="active">4x4</button>
-            <button onclick="location.reload()" title="Tải lại toàn bộ"><i class="fas fa-sync-alt"></i></button>
+            <button onclick="location.reload()"><i class="fas fa-sync-alt"></i></button>
         </div>
     </header>
 
@@ -93,108 +124,189 @@
     <div id="video-grid" class="layout-4x4"></div>
 
     <script>
-        // === CẤU HÌNH SERVER HTTPS (QUAN TRỌNG) ===
-        // Thay port nếu bạn không dùng port 443 mặc định (VD: https://triducmedia.duckdns.org:4433)
-        const SERVER_URL = "https://triducmedia.duckdns.org:4433"; 
-
-        // === DANH SÁCH LAPTOP ===
+        // === CẤU HÌNH SERVER ===
+        const SERVER_HOST = 'https://triducmedia.duckdns.org:4433';
+        
+        // === DANH SÁCH LUỒNG ===
         const MASTER_LIST = [
             'laptop1', 'laptop2', 'laptop3', 'laptop4', 'laptop5', 
             'laptop6', 'laptop7', 'laptop8', 'laptop9', 'laptop10'
         ];
 
         let activeStreams = [...MASTER_LIST];
+        let hlsInstances = {};
         let currentLayout = 16;
+        let preferredHeight = -1;
+        let showStats = false;
 
         document.addEventListener("DOMContentLoaded", () => {
             initFilterMenu();
-            loadMistPlayer(); 
+            renderGrid();
+            setInterval(updateStatsData, 1000);
         });
-
-        function loadMistPlayer() {
-            if (!window.mistplayers) {
-                var p = document.createElement("script");
-                p.src = SERVER_URL + "/player.js";
-                p.onload = () => { renderGrid(); };
-                document.head.appendChild(p);
-            } else {
-                renderGrid();
-            }
-        }
 
         function renderGrid() {
             const grid = document.getElementById('video-grid');
-            grid.innerHTML = ''; 
+            grid.innerHTML = '';
+            
+            Object.values(hlsInstances).forEach(h => h.destroy());
+            hlsInstances = {};
 
             const displayList = activeStreams.slice(0, currentLayout);
 
             displayList.forEach(name => {
-                const box = document.createElement('div');
-                box.className = 'cam-box';
-                
-                const label = document.createElement('div');
-                label.className = 'cam-label';
-                label.innerText = name.toUpperCase();
-                
-                const targetDiv = document.createElement('div');
-                targetDiv.className = 'mistvideo';
-                targetDiv.id = 'mist_target_' + name;
+                const div = document.createElement('div');
+                div.className = 'cam-box';
+                div.innerHTML = `
+                    <div class="cam-label">${name.toUpperCase()}</div>
+                    
+                    <div class="stats-overlay" id="stats-${name}">
+                        RES: <span id="res-${name}">--</span><br>
+                        CODEC: <span id="codec-${name}">--</span><br>
+                        BUF: <span id="buf-${name}">--</span>
+                    </div>
 
-                box.appendChild(label);
-                box.appendChild(targetDiv);
-                grid.appendChild(box);
+                    <div class="error-screen" id="err-${name}">
+                        <div class="error-content">
+                            <i class="fas fa-exclamation-triangle" style="font-size:24px"></i><br>
+                            ERROR<br><span style="font-size:10px" id="reason-${name}"></span>
+                            <div class="hevc-warning" onclick="alert('Để xem HEVC trên Windows, bạn cần cài đặt HEVC Video Extensions từ Microsoft Store.')">Lỗi HEVC?</div>
+                            <br><button class="btn-retry" onclick="retryStream('${name}')">Retry</button>
+                        </div>
+                    </div>
 
-                // GỌI HÀM PHÁT VIDEO ÉP WEBRTC CHẠY TRƯỚC
-                if (typeof mistPlay !== "undefined") {
-                    mistPlay(name, {
-                        target: targetDiv,
-                        autoplay: true,
-                        muted: true, // Phải Mute để tự động chạy
-                        loop: true,
-                        forcePriority: [
-                            { type: "webrtc" }, // Ưu tiên số 1: WebRTC (Trễ < 1s)
-                            { type: "ws" },     // Ưu tiên số 2: WebSocket CMAF
-                            { type: "html5" }   // Dự phòng: HLS
-                        ],
-                        latencyControl: true    // Tự động đuổi theo thời gian thực
-                    });
+                    <video id="vid-${name}" controls muted playsinline></video>
+                `;
+                grid.appendChild(div);
+                loadStream(name);
+            });
+            toggleStatsDisplay();
+        }
+
+        function loadStream(name) {
+            const video = document.getElementById(`vid-${name}`);
+            const errScreen = document.getElementById(`err-${name}`);
+            const url = `${SERVER_HOST}/hls/${name}/index.m3u8`;
+
+            errScreen.style.display = 'none';
+
+            if (Hls.isSupported()) {
+                const hls = new Hls({
+                    capLevelToPlayerSize: true,
+                    maxBufferLength: 30, 
+                    maxMaxBufferLength: 60,
+                    enableWorker: true, // Bật đa luồng để xử lý HEVC tốt hơn
+                });
+                
+                hls.loadSource(url);
+                hls.attachMedia(video);
+                hlsInstances[name] = hls;
+                applyQuality(hls);
+
+                hls.on(Hls.Events.ERROR, function (event, data) {
+                    // Kiểm tra lỗi không tương thích Codec (Thường là do thiếu HEVC)
+                    if (data.details === 'manifestIncompatibleCodecsError') {
+                        stopStream(name, "Trình duyệt thiếu Codec HEVC");
+                        return;
+                    }
+
+                    if (data.response && (data.response.code === 404 || data.response.code === 403)) {
+                        stopStream(name, "Offline (404)"); 
+                        return;
+                    }
+                    if (data.fatal) {
+                        if(data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                            hls.startLoad();
+                        } else {
+                            stopStream(name, "Fatal Error");
+                        }
+                    }
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                // Safari trên iPhone/Mac hỗ trợ HEVC native
+                video.src = url;
+                video.onerror = () => stopStream(name, "iOS Error");
+            }
+            video.play().catch(()=>{});
+        }
+
+        function stopStream(name, reason) {
+            if (hlsInstances[name]) { hlsInstances[name].destroy(); delete hlsInstances[name]; }
+            document.getElementById(`err-${name}`).style.display = 'flex';
+            document.getElementById(`reason-${name}`).innerText = reason;
+        }
+
+        function retryStream(name) { loadStream(name); }
+
+        function toggleStats() {
+            showStats = !showStats;
+            document.getElementById('btn-stats').classList.toggle('active');
+            toggleStatsDisplay();
+        }
+        function toggleStatsDisplay() {
+            document.querySelectorAll('.stats-overlay').forEach(el => el.style.display = showStats ? 'block' : 'none');
+        }
+        function updateStatsData() {
+            if (!showStats) return;
+            activeStreams.slice(0, currentLayout).forEach(name => {
+                const video = document.getElementById(`vid-${name}`);
+                if (!video) return;
+                
+                document.getElementById(`res-${name}`).innerText = (video.videoWidth > 0) ? `${video.videoWidth}x${video.videoHeight}` : "Waiting";
+                
+                if(video.buffered.length > 0) {
+                     const buf = video.buffered.end(video.buffered.length-1) - video.currentTime;
+                     document.getElementById(`buf-${name}`).innerText = `${buf.toFixed(1)}s`;
+                }
+
+                const hls = hlsInstances[name];
+                if (hls && hls.levels && hls.currentLevel !== -1 && hls.levels[hls.currentLevel]) {
+                    // Lấy tên Codec và hiển thị
+                    const codec = hls.levels[hls.currentLevel].videoCodec;
+                    let displayCodec = codec || '--';
+                    
+                    // Highlight nếu là HEVC
+                    const codecEl = document.getElementById(`codec-${name}`);
+                    if (codec && (codec.includes('hvc') || codec.includes('hev'))) {
+                        displayCodec = "HEVC (H.265)";
+                        codecEl.style.color = "#00e5ff"; // Màu xanh
+                    } else if (codec && codec.includes('avc')) {
+                        displayCodec = "H.264";
+                        codecEl.style.color = "#fff";
+                    }
+                    codecEl.innerText = displayCodec;
                 }
             });
-
-            grid.className = `layout-${currentLayout===4?'2x2':currentLayout===9?'3x3':'4x4'}`;
         }
 
+        // --- CÁC HÀM CŨ GIỮ NGUYÊN ---
         function initFilterMenu() {
-            const container = document.getElementById('checklist-container');
-            MASTER_LIST.forEach(name => {
-                const label = document.createElement('label');
-                label.className = 'filter-item';
-                label.innerHTML = `<input type="checkbox" checked onchange="toggleStream('${name}', this.checked)"> ${name.toUpperCase()}`;
-                container.appendChild(label);
+            const c = document.getElementById('checklist-container');
+            MASTER_LIST.forEach(n => {
+                c.innerHTML += `<label class="filter-item"><input type="checkbox" checked onchange="toggleStream('${n}', this.checked)"> ${n.toUpperCase()}</label>`;
             });
         }
-
         function toggleFilterMenu() {
-            const menu = document.getElementById('filter-modal');
-            const btn = document.getElementById('btn-filter');
-            const isHidden = menu.style.display === 'none' || menu.style.display === '';
-            menu.style.display = isHidden ? 'block' : 'none';
-            isHidden ? btn.classList.add('active') : btn.classList.remove('active');
+            const m = document.getElementById('filter-modal');
+            m.style.display = (m.style.display === 'none' || m.style.display === '') ? 'block' : 'none';
         }
-
-        function toggleStream(name, isChecked) {
-            if (isChecked) {
-                if (!activeStreams.includes(name)) activeStreams.push(name);
-            } else {
-                activeStreams = activeStreams.filter(s => s !== name);
-            }
-            activeStreams.sort((a, b) => MASTER_LIST.indexOf(a) - MASTER_LIST.indexOf(b));
-            renderGrid(); 
+        function toggleStream(name, check) {
+            activeStreams = check ? [...activeStreams, name] : activeStreams.filter(s => s !== name);
+            activeStreams.sort((a,b) => MASTER_LIST.indexOf(a) - MASTER_LIST.indexOf(b));
+            renderGrid();
         }
-
+        function changeQuality(v) { preferredHeight = parseInt(v); Object.values(hlsInstances).forEach(h => applyQuality(h)); }
+        function applyQuality(h) {
+            if(!h) return;
+            if(preferredHeight === -1) { h.currentLevel = -1; return; }
+            let lvl = -1;
+            h.levels.forEach((l, i) => { if(l.height <= preferredHeight) lvl = i; });
+            h.currentLevel = (lvl === -1) ? 0 : lvl;
+        }
         function setLayout(n) {
             currentLayout = n;
-            document.querySelectorAll('button[id^="btn-"]').forEach(b => b.classList.remove('active'));
+            document.getElementById('video-grid').className = `layout-${n===4?'2x2':n===9?'3x3':'4x4'}`;
+            document.querySelectorAll('button[id^="btn-"]').forEach(b=>b.classList.remove('active'));
             document.getElementById(`btn-${n===4?'2x2':n===9?'3x3':'4x4'}`).classList.add('active');
             renderGrid();
         }
